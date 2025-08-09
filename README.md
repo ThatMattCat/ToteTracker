@@ -13,3 +13,12 @@ Functionality includes:
   * A Gemini API key must be provided in the settings in order for this to function properly
 * AI Alternative: Uses API to get item details from scanned barcodes
 * Item images stored as base64-encoded strings, directly in the database
+
+<table>
+  <tr>
+    <td><img src="media/homepage.jpg" width="200" height="400"></td>
+    <td><img src="media/container-contents.jpg" width="200" height="400"></td>
+    <td><img src="media/item-search.jpg" width="200" height="400"></td>
+    <td><img src="media/new-item.jpg" width="200" height="400"></td>
+  </tr>
+</table>
