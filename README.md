@@ -21,4 +21,7 @@ Functionality includes:
     <td><img src="media/item-search.jpg" width="200" height="400"></td>
     <td><img src="media/new-item.jpg" width="200" height="400"></td>
   </tr>
+ <tr>
+  <td><img src="media/settings.jpg" width="200" height="400"></td>
+ </tr>
 </table>
