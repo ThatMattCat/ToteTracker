@@ -97,7 +97,18 @@ Before you begin, ensure you have the following installed:
 
 ## Installation
 
-### Option 1: Clone and Build from Source
+### Option 1: Download Pre-built APK
+
+Download the latest APK from automated builds:
+
+1. **Visit the [Actions](https://github.com/ThatMattCat/ToteTracker/actions) page**
+2. **Click on the latest successful "Build APK with Tests" workflow run**
+3. **Download the "tote-tracker-release-apk" artifact**
+4. **Install the APK on your Android device**
+
+*Note: You may need to enable "Install from unknown sources" in your Android settings.*
+
+### Option 2: Clone and Build from Source
 
 1. **Clone the repository**:
    ```bash
@@ -114,10 +125,6 @@ Before you begin, ensure you have the following installed:
    ```bash
    flutter run
    ```
-
-### Option 2: Download APK (Coming Soon)
-
-Pre-built APK releases will be available in the [Releases](https://github.com/ThatMattCat/ToteTracker/releases) section.
 
 ## Setup
 
@@ -188,6 +195,20 @@ Contributions are welcome! Please feel free to submit a Pull Request. For major 
 3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
 4. Push to the branch (`git push origin feature/AmazingFeature`)
 5. Open a Pull Request
+
+### Automated Builds
+
+This repository includes automated GitHub Actions that:
+- **Run Tests**: Automatically executes unit tests on every push and pull request
+- **Code Analysis**: Performs static analysis using `flutter analyze`
+- **APK Generation**: Builds release APK files automatically
+- **Artifact Storage**: Release APKs are stored as downloadable artifacts for 30 days
+
+The build workflow triggers on:
+- Push to `main` branch
+- Pull requests to `main` branch
+
+Download the latest APK from the [Actions](https://github.com/ThatMattCat/ToteTracker/actions) tab after a successful build.
 
 ## License
 
