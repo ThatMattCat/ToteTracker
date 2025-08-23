@@ -23,7 +23,7 @@ jobs:
     - name: Setup Flutter
       uses: subosito/flutter-action@v2
       with:
-        flutter-version: '3.27.1'  # Updated to latest stable with Dart 3.6.0+
+        flutter-version: '3.27.1'  # Updated to support Dart 3.6.0+ for video_player_android 2.8.7
         channel: 'stable'
         
     - name: Install dependencies
