@@ -2,9 +2,9 @@ name: Build APK with Tests
 
 on:
   push:
-    branches: [ main ]
+    branches: [ ai-test ]
   pull_request:
-    branches: [ main ]
+    branches: [ ai-test ]
 
 jobs:
   test-and-build:
