@@ -1,6 +1,6 @@
 # Testing & Debugging Patterns
 
-This file provides GitHub Copilot with specific context about testing strategies, debugging approaches, and quality assurance practices for ToteTracker development.
+This file provides GitHub Copilot with specific context about testing strategies, debugging approaches, and quality assurance practices for ToteTracker development across different framework approaches.
 
 ## Testing Architecture
 
@@ -9,36 +9,105 @@ This file provides GitHub Copilot with specific context about testing strategies
 test/
 ├── widget_test.dart           # Basic widget tests
 ├── unit/                      # Unit tests for business logic
+│   ├── services/             # Service layer tests
+│   ├── models/               # Data model tests
+│   └── utils/                # Utility function tests
 ├── integration/               # Integration tests for workflows
+│   ├── database/             # Database integration tests
+│   ├── ai/                   # AI integration tests
+│   └── ui/                   # UI workflow tests
+├── mocks/                     # Mock implementations
 └── helpers/                   # Test utility functions
 ```
 
-### Analysis Configuration
+### Analysis Configuration (Framework-Agnostic)
 ```yaml
 # analysis_options.yaml
 analyzer:
   exclude:
-    - lib/custom_code/**         # Exclude custom FlutterFlow code
-    - lib/flutter_flow/custom_functions.dart  # Exclude generated functions
+    - lib/custom_code/**         # Exclude FlutterFlow custom code
+    - lib/flutter_flow/**        # Exclude FlutterFlow generated code
+    - build/**                   # Exclude build artifacts
+    - web/**                     # Exclude web build files
+    - .dart_tool/**             # Exclude Dart tools
+
+linter:
+  rules:
+    # Add rules that work with any framework approach
+    prefer_const_constructors: true
+    prefer_const_literals_to_create_immutables: true
+    avoid_unnecessary_containers: true
+    use_build_context_synchronously: false
 ```
 
 ## Unit Testing Patterns
+
+### Framework-Agnostic Service Testing
+```dart
+import 'package:flutter_test/flutter_test.dart';
+import 'package:mockito/mockito.dart';
+import 'package:mockito/annotations.dart';
+import 'package:tote_tracker/core/services/ai_service.dart';
+import 'package:tote_tracker/core/services/database_service.dart';
+
+// Generate mocks
+@GenerateMocks([AIAnalysisService, DatabaseService])
+import 'service_test.mocks.dart';
+
+void main() {
+  group('AI Analysis Service', () {
+    late MockAIAnalysisService mockAIService;
+    
+    setUp(() {
+      mockAIService = MockAIAnalysisService();
+    });
+
+    test('should parse valid JSON response', () {
+      // Arrange
+      const responseText = '{"name": "Coffee Mug", "category": "Kitchen"}';
+      
+      // Act
+      final result = AIAnalysisService.parseAIResponse(responseText);
+      
+      // Assert
+      expect(result.name, equals('Coffee Mug'));
+      expect(result.category, equals('Kitchen'));
+    });
+
+    test('should handle malformed JSON gracefully', () {
+      // Arrange
+      const invalidJson = '{"name": "Coffee Mug", "category":}';
+      
+      // Act
+      final result = AIAnalysisService.parseAIResponse(invalidJson);
+      
+      // Assert
+      expect(result.name, isNotEmpty);
+      expect(result.category, equals('Uncategorized'));
+    });
+  });
+}
+```
 
 ### Database Operations Testing
 ```dart
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:tote_tracker/backend/sqlite/sqlite_manager.dart';
+import 'package:tote_tracker/backend/schema/structs/index.dart';
 
 void main() {
   group('Database Operations', () {
     late Database testDb;
     
-    setUp(() async {
-      // Initialize test database
+    setUpAll(() async {
+      // Initialize FFI for testing
       sqfliteFfiInit();
       databaseFactory = databaseFactoryFfi;
-      
+    });
+    
+    setUp(() async {
+      // Create in-memory test database
       testDb = await openDatabase(
         inMemoryDatabasePath,
         version: 1,
@@ -48,6 +117,201 @@ void main() {
             CREATE TABLE Containers (
               containerId TEXT PRIMARY KEY,
               name TEXT NOT NULL,
+              description TEXT,
+              createdAt INTEGER
+            )
+          ''');
+          
+          await db.execute('''
+            CREATE TABLE Items (
+              itemId INTEGER PRIMARY KEY AUTOINCREMENT,
+              name TEXT NOT NULL,
+              containerId TEXT,
+              category TEXT,
+              FOREIGN KEY (containerId) REFERENCES Containers (containerId)
+            )
+          ''');
+        },
+      );
+    });
+
+    tearDown(() async {
+      await testDb.close();
+    });
+
+    test('should insert and retrieve container', () async {
+      // Arrange
+      final container = ContainerStruct(
+        containerId: 'test-container-1',
+        name: 'Test Container',
+        description: 'A test container',
+      );
+
+      // Act
+      await testDb.insert('Containers', container.toMap());
+      final results = await testDb.query('Containers', 
+        where: 'containerId = ?', 
+        whereArgs: [container.containerId]
+      );
+
+      // Assert
+      expect(results.length, equals(1));
+      expect(results.first['name'], equals('Test Container'));
+    });
+
+    test('should maintain referential integrity', () async {
+      // Test foreign key constraints
+      final container = ContainerStruct(
+        containerId: 'container-1',
+        name: 'Parent Container',
+      );
+      
+      final item = ItemStruct(
+        name: 'Test Item',
+        containerId: 'container-1',
+        category: 'Test Category',
+      );
+
+      // Insert container first
+      await testDb.insert('Containers', container.toMap());
+      
+      // Insert item with valid foreign key
+      await testDb.insert('Items', item.toMap());
+      
+      // Verify relationship
+      final itemResults = await testDb.query('Items',
+        where: 'containerId = ?',
+        whereArgs: ['container-1']
+      );
+      
+      expect(itemResults.length, equals(1));
+      expect(itemResults.first['name'], equals('Test Item'));
+    });
+  });
+}
+```
+
+### Widget Testing Patterns
+
+#### FlutterFlow Widget Testing
+```dart
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:tote_tracker/custom_code/widgets/base64_image.dart';
+
+void main() {
+  group('FlutterFlow Custom Widgets', () {
+    testWidgets('Base64Image widget should display placeholder for null data', 
+      (WidgetTester tester) async {
+      // Arrange
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Base64Image(
+              width: 100,
+              height: 100,
+              base64: null,
+            ),
+          ),
+        ),
+      );
+
+      // Act
+      await tester.pump();
+
+      // Assert
+      expect(find.byIcon(Icons.image_not_supported), findsOneWidget);
+    });
+
+    testWidgets('Database operation widget should show loading state', 
+      (WidgetTester tester) async {
+      // Test async operations and loading states
+      bool callbackCalled = false;
+      
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: DatabaseOperationWidget(
+              onSuccess: () async {
+                callbackCalled = true;
+              },
+            ),
+          ),
+        ),
+      );
+
+      // Tap the button
+      await tester.tap(find.byType(ElevatedButton));
+      await tester.pump();
+
+      // Verify loading indicator appears
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    });
+  });
+}
+```
+
+#### Standard Flutter Widget Testing
+```dart
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:provider/provider.dart';
+import 'package:tote_tracker/core/widgets/base64_image_display.dart';
+import 'package:tote_tracker/core/providers/app_state.dart';
+
+void main() {
+  group('Standard Flutter Widgets', () {
+    testWidgets('Base64ImageDisplay should handle error gracefully', 
+      (WidgetTester tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Base64ImageDisplay(
+              width: 100,
+              height: 100,
+              base64String: 'invalid-base64',
+            ),
+          ),
+        ),
+      );
+
+      await tester.pump();
+      expect(find.byIcon(Icons.broken_image), findsOneWidget);
+    });
+
+    testWidgets('Widget should respond to provider state changes', 
+      (WidgetTester tester) async {
+      final appState = AppState();
+      
+      await tester.pumpWidget(
+        ChangeNotifierProvider.value(
+          value: appState,
+          child: MaterialApp(
+            home: Scaffold(
+              body: Consumer<AppState>(
+                builder: (context, state, child) {
+                  return Text(state.selectedContainer ?? 'No container');
+                },
+              ),
+            ),
+          ),
+        ),
+      );
+
+      // Initial state
+      expect(find.text('No container'), findsOneWidget);
+
+      // Update state
+      appState.setSelectedContainer('container-1');
+      await tester.pump();
+
+      // Verify UI updates
+      expect(find.text('container-1'), findsOneWidget);
+      expect(find.text('No container'), findsNothing);
+    });
+  });
+}
+```
               userId TEXT
             )
           ''');

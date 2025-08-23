@@ -108,7 +108,9 @@ class AiImageResponseStruct extends BaseStruct {
 }
 ```
 
-### Expected AI Response Format
+### Expected AI Response Formats
+
+#### Basic Response Format
 ```json
 {
   "name": "Red Coffee Mug",
@@ -116,7 +118,435 @@ class AiImageResponseStruct extends BaseStruct {
 }
 ```
 
+#### Enhanced Response Format (with confidence and alternatives)
+```json
+{
+  "name": "Red Coffee Mug",
+  "category": "Kitchen & Dining",
+  "confidence": 0.95,
+  "alternativeNames": ["Coffee Cup", "Ceramic Mug"],
+  "alternativeCategories": ["Kitchenware", "Dining"]
+}
+```
+
 ## AI Integration Patterns
+
+### Framework-Agnostic AI Service
+```dart
+/// Primary AI Service that works with any Flutter framework
+class AIAnalysisService {
+  static const String _defaultPrompt = '''
+Analyze this image and provide a concise name and category for the object.
+Return the response in JSON format with "name" and "category" fields.
+The name should be descriptive but concise (2-4 words).
+The category should be broad enough to group similar items.
+
+Example response:
+{"name": "Blue Coffee Mug", "category": "Kitchen & Dining"}
+''';
+
+  /// Analyze image and return structured response
+  static Future<AIAnalysisResult> analyzeImage({
+    required String apiKey,
+    required Uint8List imageBytes,
+    String? customPrompt,
+    Duration timeout = const Duration(seconds: 30),
+  }) async {
+    try {
+      // Initialize Gemini
+      Gemini.init(apiKey: apiKey);
+      final gemini = Gemini.instance;
+
+      // Send request with timeout
+      final response = await Future.timeout(
+        gemini.textAndImage(
+          text: customPrompt ?? _defaultPrompt,
+          images: [imageBytes],
+        ),
+        timeout,
+      );
+
+      // Parse response
+      final responseText = response?.content?.parts?.last.text;
+      if (responseText == null || responseText.isEmpty) {
+        return AIAnalysisResult.error('No response received from AI service');
+      }
+
+      // Parse JSON response
+      final aiResponse = _parseAIResponse(responseText);
+      return AIAnalysisResult.success(aiResponse);
+
+    } on TimeoutException {
+      return AIAnalysisResult.error('AI analysis timed out');
+    } catch (e) {
+      return AIAnalysisResult.error('AI analysis failed: ${e.toString()}');
+    }
+  }
+
+  /// Parse AI response text to structured data
+  static AIImageResponse _parseAIResponse(String responseText) {
+    try {
+      // Try to extract JSON from response
+      final jsonMatch = RegExp(r'\{[^{}]*\}').firstMatch(responseText);
+      if (jsonMatch != null) {
+        final jsonString = jsonMatch.group(0)!;
+        final Map<String, dynamic> parsed = json.decode(jsonString);
+        return AIImageResponse.fromJson(parsed);
+      }
+
+      // Fallback: try to parse manually
+      return _fallbackParse(responseText);
+    } catch (e) {
+      // Final fallback: return raw response as name
+      return AIImageResponse(
+        name: responseText.length > 50 
+          ? responseText.substring(0, 50).trim() + '...'
+          : responseText.trim(),
+        category: 'Uncategorized',
+      );
+    }
+  }
+
+  /// Fallback parsing for non-JSON responses
+  static AIImageResponse _fallbackParse(String responseText) {
+    final lines = responseText.split('\n')
+        .map((line) => line.trim())
+        .where((line) => line.isNotEmpty)
+        .toList();
+
+    String name = 'Unknown Item';
+    String category = 'Uncategorized';
+
+    for (final line in lines) {
+      if (line.toLowerCase().contains('name')) {
+        final nameMatch = RegExp(r'name[:\-\s]+(.+)', caseSensitive: false)
+            .firstMatch(line);
+        if (nameMatch != null) {
+          name = nameMatch.group(1)!.trim().replaceAll('"', '');
+        }
+      } else if (line.toLowerCase().contains('category')) {
+        final categoryMatch = RegExp(r'category[:\-\s]+(.+)', caseSensitive: false)
+            .firstMatch(line);
+        if (categoryMatch != null) {
+          category = categoryMatch.group(1)!.trim().replaceAll('"', '');
+        }
+      }
+    }
+
+    return AIImageResponse(name: name, category: category);
+  }
+
+  /// Get predefined categories for fallback
+  static List<String> getPredefinedCategories() {
+    return [
+      'Kitchen & Dining',
+      'Electronics',
+      'Clothing & Accessories',
+      'Books & Media',
+      'Tools & Hardware',
+      'Sports & Recreation',
+      'Health & Beauty',
+      'Home & Garden',
+      'Toys & Games',
+      'Office Supplies',
+      'Automotive',
+      'Art & Crafts',
+      'Food & Beverages',
+      'Cleaning Supplies',
+      'Personal Items',
+      'Miscellaneous',
+    ];
+  }
+}
+
+/// Result wrapper for AI analysis operations
+class AIAnalysisResult {
+  final bool isSuccess;
+  final AIImageResponse? data;
+  final String? error;
+
+  const AIAnalysisResult._({
+    required this.isSuccess,
+    this.data,
+    this.error,
+  });
+
+  factory AIAnalysisResult.success(AIImageResponse data) {
+    return AIAnalysisResult._(isSuccess: true, data: data);
+  }
+
+  factory AIAnalysisResult.error(String error) {
+    return AIAnalysisResult._(isSuccess: false, error: error);
+  }
+}
+
+### FlutterFlow Integration Patterns
+
+#### FlutterFlow Custom Action
+```dart
+/// FlutterFlow custom action for AI image analysis
+Future<AiImageResponseStruct> analyzeImageWithAI(
+  String apiKey,
+  FFUploadedFile imageFile,
+  String? customPrompt,
+) async {
+  try {
+    // Convert FFUploadedFile to bytes
+    final imageBytes = imageFile.bytes;
+    if (imageBytes == null) {
+      return AiImageResponseStruct(
+        name: 'Error: No image data',
+        category: 'Error',
+      );
+    }
+
+    // Use framework-agnostic service
+    final result = await AIAnalysisService.analyzeImage(
+      apiKey: apiKey,
+      imageBytes: imageBytes,
+      customPrompt: customPrompt,
+    );
+
+    if (result.isSuccess && result.data != null) {
+      return AiImageResponseStruct.fromAIImageResponse(result.data!);
+    } else {
+      return AiImageResponseStruct(
+        name: 'Analysis failed',
+        category: 'Error',
+      );
+    }
+  } catch (e) {
+    return AiImageResponseStruct(
+      name: 'Error: ${e.toString()}',
+      category: 'Error',
+    );
+  }
+}
+```
+
+#### FlutterFlow Custom Function
+```dart
+/// FlutterFlow custom function to parse AI response text
+AiImageResponseStruct aiImageResponseToNameCategory(String responseText) {
+  try {
+    // Use framework-agnostic parsing
+    final parsed = AIAnalysisService._parseAIResponse(responseText);
+    return AiImageResponseStruct.fromAIImageResponse(parsed);
+  } catch (e) {
+    return AiImageResponseStruct(
+      name: 'Parse Error',
+      category: 'Error',
+    );
+  }
+}
+```
+
+### Standard Flutter Integration Patterns
+
+#### Using with Provider State Management
+```dart
+class AIAnalysisProvider extends ChangeNotifier {
+  AIImageResponse? _lastAnalysis;
+  bool _isAnalyzing = false;
+  String? _error;
+
+  AIImageResponse? get lastAnalysis => _lastAnalysis;
+  bool get isAnalyzing => _isAnalyzing;
+  String? get error => _error;
+
+  Future<void> analyzeImage({
+    required String apiKey,
+    required Uint8List imageBytes,
+    String? customPrompt,
+  }) async {
+    _isAnalyzing = true;
+    _error = null;
+    notifyListeners();
+
+    try {
+      final result = await AIAnalysisService.analyzeImage(
+        apiKey: apiKey,
+        imageBytes: imageBytes,
+        customPrompt: customPrompt,
+      );
+
+      if (result.isSuccess) {
+        _lastAnalysis = result.data;
+      } else {
+        _error = result.error;
+      }
+    } catch (e) {
+      _error = 'Unexpected error: ${e.toString()}';
+    } finally {
+      _isAnalyzing = false;
+      notifyListeners();
+    }
+  }
+
+  void clearAnalysis() {
+    _lastAnalysis = null;
+    _error = null;
+    notifyListeners();
+  }
+}
+```
+
+#### Using with Riverpod
+```dart
+// Providers
+final aiApiKeyProvider = StateProvider<String?>((ref) => null);
+
+final aiAnalysisProvider = StateNotifierProvider<AIAnalysisNotifier, AIAnalysisState>(
+  (ref) => AIAnalysisNotifier(),
+);
+
+// State classes
+class AIAnalysisState {
+  final AIImageResponse? analysis;
+  final bool isLoading;
+  final String? error;
+
+  const AIAnalysisState({
+    this.analysis,
+    this.isLoading = false,
+    this.error,
+  });
+
+  AIAnalysisState copyWith({
+    AIImageResponse? analysis,
+    bool? isLoading,
+    String? error,
+  }) {
+    return AIAnalysisState(
+      analysis: analysis ?? this.analysis,
+      isLoading: isLoading ?? this.isLoading,
+      error: error ?? this.error,
+    );
+  }
+}
+
+class AIAnalysisNotifier extends StateNotifier<AIAnalysisState> {
+  AIAnalysisNotifier() : super(const AIAnalysisState());
+
+  Future<void> analyzeImage({
+    required String apiKey,
+    required Uint8List imageBytes,
+    String? customPrompt,
+  }) async {
+    state = state.copyWith(isLoading: true, error: null);
+
+    try {
+      final result = await AIAnalysisService.analyzeImage(
+        apiKey: apiKey,
+        imageBytes: imageBytes,
+        customPrompt: customPrompt,
+      );
+
+      if (result.isSuccess) {
+        state = state.copyWith(
+          analysis: result.data,
+          isLoading: false,
+        );
+      } else {
+        state = state.copyWith(
+          error: result.error,
+          isLoading: false,
+        );
+      }
+    } catch (e) {
+      state = state.copyWith(
+        error: 'Unexpected error: ${e.toString()}',
+        isLoading: false,
+      );
+    }
+  }
+}
+```
+
+## Error Handling & Fallback Patterns
+
+### Graceful Degradation
+```dart
+class AIAnalysisManager {
+  static const Duration _defaultTimeout = Duration(seconds: 30);
+  static const int _maxRetries = 3;
+
+  /// Analyze image with retry logic and fallbacks
+  static Future<AIImageResponse> analyzeImageWithFallbacks({
+    required String apiKey,
+    required Uint8List imageBytes,
+    String? customPrompt,
+    Duration timeout = _defaultTimeout,
+    int maxRetries = _maxRetries,
+  }) async {
+    var attempts = 0;
+    
+    while (attempts < maxRetries) {
+      attempts++;
+      
+      try {
+        final result = await AIAnalysisService.analyzeImage(
+          apiKey: apiKey,
+          imageBytes: imageBytes,
+          customPrompt: customPrompt,
+          timeout: timeout,
+        );
+
+        if (result.isSuccess && result.data != null) {
+          return result.data!;
+        }
+
+        // If this is the last attempt, proceed to fallbacks
+        if (attempts >= maxRetries) {
+          break;
+        }
+
+        // Wait before retrying
+        await Future.delayed(Duration(seconds: attempts * 2));
+      } catch (e) {
+        debugPrint('AI analysis attempt $attempts failed: $e');
+        
+        if (attempts >= maxRetries) {
+          break;
+        }
+      }
+    }
+
+    // All AI attempts failed, use fallbacks
+    return _getFallbackResponse();
+  }
+
+  /// Provide fallback response when AI fails
+  static AIImageResponse _getFallbackResponse() {
+    return const AIImageResponse(
+      name: 'New Item',
+      category: 'Uncategorized',
+    );
+  }
+
+  /// Check if API key is valid format
+  static bool isValidApiKey(String? apiKey) {
+    if (apiKey == null || apiKey.isEmpty) return false;
+    // Add specific validation logic for Gemini API key format
+    return apiKey.length > 10; // Basic length check
+  }
+
+  /// Get user-friendly error message
+  static String getErrorMessage(String error) {
+    if (error.contains('timeout') || error.contains('timed out')) {
+      return 'AI analysis took too long. Please try again.';
+    } else if (error.contains('network') || error.contains('connection')) {
+      return 'Network error. Please check your internet connection.';
+    } else if (error.contains('quota') || error.contains('limit')) {
+      return 'AI service limit reached. Please try again later.';
+    } else if (error.contains('key') || error.contains('auth')) {
+      return 'API key error. Please check your AI service configuration.';
+    } else {
+      return 'AI analysis failed. You can enter item details manually.';
+    }
+  }
+}
+```
 
 ### Image Analysis Workflow
 ```dart
