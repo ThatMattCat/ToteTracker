@@ -1,25 +1,40 @@
 # Custom Components & Widget Patterns
 
-This file provides GitHub Copilot with specific context about ToteTracker's custom components, widgets, and actions that extend FlutterFlow functionality.
+This file provides GitHub Copilot with specific context about ToteTracker's custom components, widgets, and actions that can work with both FlutterFlow and standard Flutter approaches.
 
 ## Custom Code Architecture
 
 ### Directory Structure
 ```
-lib/custom_code/
-├── widgets/               # Custom Flutter widgets
-│   ├── base64_image.dart           # Display base64 encoded images
-│   ├── database_backup_widget.dart # Database export functionality
-│   ├── import_database_widget.dart # Database import functionality
+lib/custom_code/               # FlutterFlow custom code (if using FlutterFlow)
+├── widgets/                   # Custom Flutter widgets for FlutterFlow
+│   ├── base64_image.dart              # Display base64 encoded images
+│   ├── database_backup_widget.dart    # Database export functionality
+│   ├── import_database_widget.dart    # Database import functionality
 │   └── import_db_and_restart_widget.dart # Import with app restart
-├── actions/               # Custom business logic functions
+├── actions/                   # Custom business logic functions
 │   ├── analyze_image_with_gemini.dart # AI image analysis
-│   ├── ai_response_to_item_data.dart # Parse AI responses
-│   └── file_to_base64.dart # File conversion utilities
-└── index.dart            # Export barrel files
+│   ├── ai_response_to_item_data.dart  # Parse AI responses
+│   └── file_to_base64.dart            # File conversion utilities
+└── index.dart                 # Export barrel files
+
+lib/core/                      # Framework-agnostic custom code
+├── widgets/                   # Standard Flutter widgets
+│   ├── base64_image_display.dart      # Base64 image display
+│   ├── database_operations.dart       # Database operation widgets
+│   └── custom_buttons.dart            # Custom button components
+├── services/                  # Business logic services
+│   ├── ai_service.dart                # AI integration service
+│   ├── database_service.dart          # Database operations service
+│   └── file_service.dart              # File handling service
+└── utils/                     # Utility functions
+    ├── validators.dart                # Form validation utilities
+    └── converters.dart                # Data conversion utilities
 ```
 
-### Import Pattern for Custom Code
+### Import Patterns
+
+#### FlutterFlow Custom Widget Imports
 ```dart
 // Standard FlutterFlow imports for custom widgets/actions
 import '/backend/schema/structs/index.dart';
@@ -34,11 +49,33 @@ import 'package:flutter/material.dart';
 // DO NOT REMOVE OR MODIFY THE CODE ABOVE!
 ```
 
+#### Standard Flutter Widget Imports
+```dart
+// Standard Flutter imports for custom widgets
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart'; // Or chosen state management
+import '../../backend/schema/structs/index.dart';
+import '../../backend/sqlite/sqlite_manager.dart';
+import '../../core/themes/app_theme.dart'; // Custom theme system
+import '../services/index.dart'; // Custom services
+import '../utils/index.dart'; // Utility functions
+```
+
+#### Framework-Agnostic Imports
+```dart
+// Imports that work with any approach
+import 'package:flutter/material.dart';
+import 'dart:convert';
+import 'dart:typed_data';
+import 'package:sqflite/sqflite.dart';
+import 'package:flutter_gemini/flutter_gemini.dart';
+```
+
 ## Custom Widget Patterns
 
-### Base64 Image Display Widget
+### Base64 Image Display Widget - FlutterFlow Compatible
 ```dart
-/// Base64 Image Display Widget
+/// Base64 Image Display Widget for FlutterFlow
 /// Converts base64 string to displayable image
 class Base64Image extends StatefulWidget {
   const Base64Image({
@@ -87,6 +124,147 @@ class _Base64ImageState extends State<Base64Image> {
           );
   }
 }
+```
+
+### Base64 Image Display Widget - Standard Flutter
+```dart
+/// Base64 Image Display Widget for Standard Flutter
+class Base64ImageDisplay extends StatelessWidget {
+  const Base64ImageDisplay({
+    Key? key,
+    this.width,
+    this.height,
+    required this.base64String,
+    this.fit = BoxFit.contain,
+    this.placeholder,
+    this.errorWidget,
+  }) : super(key: key);
+
+  final double? width;
+  final double? height;
+  final String? base64String;
+  final BoxFit fit;
+  final Widget? placeholder;
+  final Widget? errorWidget;
+
+  @override
+  Widget build(BuildContext context) {
+    if (base64String == null || base64String!.isEmpty) {
+      return _buildPlaceholder();
+    }
+
+    try {
+      final imageBytes = base64Decode(base64String!);
+      return Image.memory(
+        imageBytes,
+        width: width,
+        height: height,
+        fit: fit,
+        errorBuilder: (context, error, stackTrace) => _buildErrorWidget(),
+      );
+    } catch (e) {
+      return _buildErrorWidget();
+    }
+  }
+
+  Widget _buildPlaceholder() {
+    return placeholder ??
+        Container(
+          width: width,
+          height: height,
+          color: Colors.grey[200],
+          child: const Icon(
+            Icons.image_not_supported,
+            color: Colors.grey,
+          ),
+        );
+  }
+
+  Widget _buildErrorWidget() {
+    return errorWidget ??
+        Container(
+          width: width,
+          height: height,
+          color: Colors.grey[300],
+          child: const Icon(
+            Icons.broken_image,
+            color: Colors.red,
+          ),
+        );
+  }
+}
+```
+
+### Framework-Agnostic Base64 Image Service
+```dart
+/// Service for handling base64 image operations
+class Base64ImageService {
+  static Uint8List? decodeBase64(String? base64String) {
+    if (base64String == null || base64String.isEmpty) return null;
+    
+    try {
+      return base64Decode(base64String);
+    } catch (e) {
+      debugPrint('Error decoding base64 image: $e');
+      return null;
+    }
+  }
+
+  static String? encodeImage(Uint8List imageBytes) {
+    try {
+      return base64Encode(imageBytes);
+    } catch (e) {
+      debugPrint('Error encoding image to base64: $e');
+      return null;
+    }
+  }
+
+  static Widget buildImageWidget({
+    required String? base64String,
+    double? width,
+    double? height,
+    BoxFit fit = BoxFit.contain,
+    Widget? placeholder,
+    Widget? errorWidget,
+  }) {
+    final imageBytes = decodeBase64(base64String);
+    
+    if (imageBytes == null) {
+      return placeholder ?? _defaultPlaceholder(width, height);
+    }
+
+    return Image.memory(
+      imageBytes,
+      width: width,
+      height: height,
+      fit: fit,
+      errorBuilder: (context, error, stackTrace) {
+        return errorWidget ?? _defaultErrorWidget(width, height);
+      },
+    );
+  }
+
+  static Widget _defaultPlaceholder(double? width, double? height) {
+    return Container(
+      width: width,
+      height: height,
+      color: Colors.grey[200],
+      child: const Icon(Icons.image_not_supported, color: Colors.grey),
+    );
+  }
+
+  static Widget _defaultErrorWidget(double? width, double? height) {
+    return Container(
+      width: width,
+      height: height,
+      color: Colors.grey[300],
+      child: const Icon(Icons.broken_image, color: Colors.red),
+    );
+  }
+}
+
+// Usage:
+// Base64ImageService.buildImageWidget(base64String: myBase64String)
 ```
 
 ### Database Operations Widget Pattern
