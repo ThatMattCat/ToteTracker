@@ -267,9 +267,11 @@ class Base64ImageService {
 // Base64ImageService.buildImageWidget(base64String: myBase64String)
 ```
 
-### Database Operations Widget Pattern
+### Database Operations Widget Patterns
+
+#### FlutterFlow Database Widget
 ```dart
-/// Widget for database import/export operations
+/// FlutterFlow-compatible database operations widget
 class DatabaseOperationWidget extends StatefulWidget {
   const DatabaseOperationWidget({
     Key? key,
@@ -281,8 +283,8 @@ class DatabaseOperationWidget extends StatefulWidget {
 
   final double? width;
   final double? height;
-  final Future<dynamic> Function()? onSuccess;
-  final Future<dynamic> Function()? onError;
+  final Future<dynamic> Function()? onSuccess; // FlutterFlow callback
+  final Future<dynamic> Function()? onError;   // FlutterFlow callback
 
   @override
   _DatabaseOperationWidgetState createState() => _DatabaseOperationWidgetState();
@@ -384,11 +386,197 @@ class _DatabaseOperationWidgetState extends State<DatabaseOperationWidget> {
 }
 ```
 
+#### Standard Flutter Database Widget
+```dart
+/// Standard Flutter database operations widget
+class DatabaseOperationButton extends StatefulWidget {
+  const DatabaseOperationButton({
+    Key? key,
+    this.width,
+    this.height,
+    this.operationType = DatabaseOperationType.export,
+    this.onSuccess,
+    this.onError,
+    this.buttonText,
+  }) : super(key: key);
+
+  final double? width;
+  final double? height;
+  final DatabaseOperationType operationType;
+  final VoidCallback? onSuccess; // Standard Flutter callback
+  final void Function(String error)? onError;
+  final String? buttonText;
+
+  @override
+  State<DatabaseOperationButton> createState() => _DatabaseOperationButtonState();
+}
+
+class _DatabaseOperationButtonState extends State<DatabaseOperationButton> {
+  bool _isProcessing = false;
+
+  Future<void> _performOperation() async {
+    if (_isProcessing) return;
+
+    setState(() => _isProcessing = true);
+
+    try {
+      switch (widget.operationType) {
+        case DatabaseOperationType.export:
+          await DatabaseService.exportDatabase();
+          break;
+        case DatabaseOperationType.import:
+          await DatabaseService.importDatabase();
+          break;
+        case DatabaseOperationType.backup:
+          await DatabaseService.backupDatabase();
+          break;
+      }
+
+      if (widget.onSuccess != null) {
+        widget.onSuccess!();
+      }
+
+      _showMessage('Operation completed successfully');
+    } catch (e) {
+      final errorMessage = 'Operation failed: ${e.toString()}';
+      
+      if (widget.onError != null) {
+        widget.onError!(errorMessage);
+      }
+
+      _showMessage(errorMessage, isError: true);
+    } finally {
+      if (mounted) {
+        setState(() => _isProcessing = false);
+      }
+    }
+  }
+
+  void _showMessage(String message, {bool isError = false}) {
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: isError 
+          ? Theme.of(context).colorScheme.error 
+          : Theme.of(context).colorScheme.primary,
+        duration: const Duration(seconds: 3),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: widget.width,
+      height: widget.height,
+      child: ElevatedButton.icon(
+        onPressed: _isProcessing ? null : _performOperation,
+        style: ElevatedButton.styleFrom(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(8),
+          ),
+        ),
+        icon: _isProcessing
+            ? SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  valueColor: AlwaysStoppedAnimation<Color>(
+                    Theme.of(context).colorScheme.onPrimary,
+                  ),
+                ),
+              )
+            : const Icon(Icons.database),
+        label: Text(
+          widget.buttonText ?? _getDefaultButtonText(),
+          style: Theme.of(context).textTheme.labelLarge,
+        ),
+      ),
+    );
+  }
+
+  String _getDefaultButtonText() {
+    switch (widget.operationType) {
+      case DatabaseOperationType.export:
+        return 'Export Database';
+      case DatabaseOperationType.import:
+        return 'Import Database';
+      case DatabaseOperationType.backup:
+        return 'Backup Database';
+    }
+  }
+}
+
+enum DatabaseOperationType { export, import, backup }
+```
+
+#### Framework-Agnostic Database Service
+```dart
+/// Framework-agnostic database operations service
+class DatabaseService {
+  static Future<String> exportDatabase() async {
+    try {
+      final dbPath = await getDatabasesPath();
+      final dbFile = File('$dbPath/totetracker.db');
+      
+      if (!await dbFile.exists()) {
+        throw Exception('Database file not found');
+      }
+
+      final bytes = await dbFile.readAsBytes();
+      return base64Encode(bytes);
+    } catch (e) {
+      throw Exception('Error exporting database: ${e.toString()}');
+    }
+  }
+
+  static Future<void> importDatabase(String base64Data) async {
+    try {
+      final bytes = base64Decode(base64Data);
+      final dbPath = await getDatabasesPath();
+      final dbFile = File('$dbPath/totetracker.db');
+      
+      // Close current database connection
+      await SQLiteManager.instance.database.close();
+      
+      // Write new database file
+      await dbFile.writeAsBytes(bytes);
+      
+      // Reinitialize database
+      await SQLiteManager.initialize();
+    } catch (e) {
+      throw Exception('Error importing database: ${e.toString()}');
+    }
+  }
+
+  static Future<void> backupDatabase() async {
+    try {
+      final exportedData = await exportDatabase();
+      // Save to device storage or cloud
+      await _saveBackupToStorage(exportedData);
+    } catch (e) {
+      throw Exception('Error backing up database: ${e.toString()}');
+    }
+  }
+
+  static Future<void> _saveBackupToStorage(String data) async {
+    // Implementation for saving backup data
+    // This could save to local storage, cloud storage, etc.
+  }
+}
+```
+
 ## Custom Action Patterns
 
-### Image Analysis Action
+### Image Analysis Actions
+
+#### FlutterFlow Action Pattern
 ```dart
-/// Analyze image with Google Gemini AI
+/// Analyze image with Google Gemini AI (FlutterFlow action)
 Future<String> analyzeImageWithGemini(
   String apiKey,
   FFUploadedFile imageFile,
@@ -426,9 +614,129 @@ Future<String> analyzeImageWithGemini(
 }
 ```
 
-### File Conversion Action
+#### Standard Flutter Service Pattern
 ```dart
-/// Convert file to base64 string for database storage
+/// AI Image Analysis Service (Framework-agnostic)
+class AIImageAnalysisService {
+  static Future<ImageAnalysisResult> analyzeImage({
+    required String apiKey,
+    required Uint8List imageBytes,
+    required String prompt,
+  }) async {
+    try {
+      // Initialize Gemini with the API key
+      Gemini.init(apiKey: apiKey);
+
+      final gemini = Gemini.instance;
+
+      // Send the image and prompt to Gemini
+      final response = await gemini.textAndImage(
+        text: prompt,
+        images: [imageBytes],
+      );
+
+      // Extract the response text
+      final responseText = response?.content?.parts?.last.text;
+
+      if (responseText == null || responseText.isEmpty) {
+        return ImageAnalysisResult.error('No response received from Gemini');
+      }
+
+      return ImageAnalysisResult.success(responseText);
+    } catch (e) {
+      return ImageAnalysisResult.error('Error analyzing image: ${e.toString()}');
+    }
+  }
+
+  static Future<ImageAnalysisResult> analyzeImageFromFile({
+    required String apiKey,
+    required File imageFile,
+    required String prompt,
+  }) async {
+    try {
+      final imageBytes = await imageFile.readAsBytes();
+      return analyzeImage(
+        apiKey: apiKey,
+        imageBytes: imageBytes,
+        prompt: prompt,
+      );
+    } catch (e) {
+      return ImageAnalysisResult.error('Error reading image file: ${e.toString()}');
+    }
+  }
+}
+
+/// Result class for image analysis operations
+class ImageAnalysisResult {
+  final bool isSuccess;
+  final String? data;
+  final String? error;
+
+  const ImageAnalysisResult._({
+    required this.isSuccess,
+    this.data,
+    this.error,
+  });
+
+  factory ImageAnalysisResult.success(String data) {
+    return ImageAnalysisResult._(isSuccess: true, data: data);
+  }
+
+  factory ImageAnalysisResult.error(String error) {
+    return ImageAnalysisResult._(isSuccess: false, error: error);
+  }
+}
+```
+
+#### Unified AI Service (Works with both approaches)
+```dart
+/// Unified AI service that works with both FlutterFlow and standard Flutter
+class UnifiedAIService {
+  static Future<String> analyzeImage({
+    required String apiKey,
+    required String prompt,
+    FFUploadedFile? flutterFlowFile,
+    Uint8List? imageBytes,
+    File? imageFile,
+  }) async {
+    Uint8List? finalImageBytes;
+
+    // Handle different input types
+    if (flutterFlowFile != null) {
+      finalImageBytes = flutterFlowFile.bytes;
+    } else if (imageBytes != null) {
+      finalImageBytes = imageBytes;
+    } else if (imageFile != null) {
+      finalImageBytes = await imageFile.readAsBytes();
+    }
+
+    if (finalImageBytes == null) {
+      throw Exception('No valid image data provided');
+    }
+
+    try {
+      Gemini.init(apiKey: apiKey);
+      final gemini = Gemini.instance;
+
+      final response = await gemini.textAndImage(
+        text: prompt,
+        images: [finalImageBytes],
+      );
+
+      final responseText = response?.content?.parts?.last.text;
+      return responseText ?? 'No response received from Gemini';
+    } catch (e) {
+      throw Exception('Error analyzing image: ${e.toString()}');
+    }
+  }
+}
+```
+
+### File Conversion Patterns
+
+#### FlutterFlow File Conversion Action
+```dart
+/// Convert FlutterFlow uploaded file to base64 string for database storage
 Future<String> fileToBase64(FFUploadedFile file) async {
   try {
     final bytes = file.bytes;
@@ -457,6 +765,176 @@ Uint8List base64ToBytes(String base64String) {
   } catch (e) {
     throw Exception('Error decoding base64 string: ${e.toString()}');
   }
+}
+```
+
+#### Standard Flutter File Conversion Service
+```dart
+/// Framework-agnostic file conversion service
+class FileConversionService {
+  /// Convert file to base64 string
+  static Future<FileConversionResult> fileToBase64({
+    File? file,
+    Uint8List? bytes,
+    String? filePath,
+  }) async {
+    try {
+      Uint8List? fileBytes;
+
+      if (bytes != null) {
+        fileBytes = bytes;
+      } else if (file != null) {
+        fileBytes = await file.readAsBytes();
+      } else if (filePath != null) {
+        final fileFromPath = File(filePath);
+        fileBytes = await fileFromPath.readAsBytes();
+      }
+
+      if (fileBytes == null || fileBytes.isEmpty) {
+        return FileConversionResult.error('No valid file data provided');
+      }
+
+      final base64String = base64Encode(fileBytes);
+      
+      if (base64String.isEmpty) {
+        return FileConversionResult.error('Failed to convert file to base64');
+      }
+
+      return FileConversionResult.success(base64String);
+    } catch (e) {
+      return FileConversionResult.error('Error converting file to base64: ${e.toString()}');
+    }
+  }
+
+  /// Convert base64 string back to bytes
+  static FileConversionResult base64ToBytes(String base64String) {
+    try {
+      if (base64String.isEmpty) {
+        return FileConversionResult.error('Base64 string is empty');
+      }
+
+      final bytes = base64Decode(base64String);
+      return FileConversionResult.successBytes(bytes);
+    } catch (e) {
+      return FileConversionResult.error('Error decoding base64 string: ${e.toString()}');
+    }
+  }
+
+  /// Save bytes to file
+  static Future<FileConversionResult> saveToFile({
+    required Uint8List bytes,
+    required String filePath,
+  }) async {
+    try {
+      final file = File(filePath);
+      await file.writeAsBytes(bytes);
+      return FileConversionResult.success('File saved successfully to $filePath');
+    } catch (e) {
+      return FileConversionResult.error('Error saving file: ${e.toString()}');
+    }
+  }
+
+  /// Get file size in a human-readable format
+  static String getFileSize(Uint8List bytes) {
+    const suffixes = ['B', 'KB', 'MB', 'GB'];
+    var size = bytes.length.toDouble();
+    var suffixIndex = 0;
+
+    while (size >= 1024 && suffixIndex < suffixes.length - 1) {
+      size /= 1024;
+      suffixIndex++;
+    }
+
+    return '${size.toStringAsFixed(1)} ${suffixes[suffixIndex]}';
+  }
+}
+
+/// Result class for file conversion operations
+class FileConversionResult {
+  final bool isSuccess;
+  final String? data;
+  final Uint8List? bytes;
+  final String? error;
+
+  const FileConversionResult._({
+    required this.isSuccess,
+    this.data,
+    this.bytes,
+    this.error,
+  });
+
+  factory FileConversionResult.success(String data) {
+    return FileConversionResult._(isSuccess: true, data: data);
+  }
+
+  factory FileConversionResult.successBytes(Uint8List bytes) {
+    return FileConversionResult._(isSuccess: true, bytes: bytes);
+  }
+
+  factory FileConversionResult.error(String error) {
+    return FileConversionResult._(isSuccess: false, error: error);
+  }
+}
+```
+
+#### Image Processing Service (Framework-Agnostic)
+```dart
+/// Image processing service that works with any framework
+class ImageProcessingService {
+  /// Compress image for database storage
+  static Future<Uint8List?> compressImage({
+    required Uint8List imageBytes,
+    int quality = 85,
+    int? maxWidth,
+    int? maxHeight,
+  }) async {
+    try {
+      // Note: This would require image processing packages like 'image' or 'flutter_image_compress'
+      // Implementation would depend on chosen package
+      
+      // Placeholder implementation
+      return imageBytes;
+    } catch (e) {
+      debugPrint('Error compressing image: $e');
+      return null;
+    }
+  }
+
+  /// Get image metadata
+  static Future<ImageMetadata?> getImageMetadata(Uint8List imageBytes) async {
+    try {
+      // Note: Implementation would depend on image processing package
+      
+      // Placeholder implementation
+      return ImageMetadata(
+        width: 0,
+        height: 0,
+        format: 'unknown',
+        sizeInBytes: imageBytes.length,
+      );
+    } catch (e) {
+      debugPrint('Error getting image metadata: $e');
+      return null;
+    }
+  }
+}
+
+class ImageMetadata {
+  final int width;
+  final int height;
+  final String format;
+  final int sizeInBytes;
+
+  ImageMetadata({
+    required this.width,
+    required this.height,
+    required this.format,
+    required this.sizeInBytes,
+  });
+
+  String get sizeFormatted => FileConversionService.getFileSize(
+    Uint8List(sizeInBytes)
+  );
 }
 ```
 

@@ -1,6 +1,6 @@
-# AI Integration & Google Gemini Patterns
+# AI Integration Patterns
 
-This file provides GitHub Copilot with specific context about ToteTracker's AI integration, focusing on Google Gemini for image analysis and automatic categorization.
+This file provides GitHub Copilot with specific context about ToteTracker's AI integration patterns, focusing on Google Gemini for image analysis and automatic categorization. These patterns are designed to work with both FlutterFlow and standard Flutter approaches.
 
 ## AI Architecture Overview
 
@@ -8,18 +8,68 @@ This file provides GitHub Copilot with specific context about ToteTracker's AI i
 - **Automatic Item Naming**: Generate descriptive names from item photos
 - **Category Suggestion**: Suggest appropriate categories based on image content
 - **User Experience**: Reduce manual data entry and improve consistency
+- **Offline Fallback**: Graceful degradation when AI services are unavailable
 
 ### Technology Stack
 - **Google Gemini AI**: Primary AI service for image analysis
 - **flutter_gemini Package**: Flutter integration for Gemini API
+- **Framework-Agnostic Services**: Services that work with any UI framework
 - **Base64 Image Processing**: Convert images for API transmission
 - **JSON Response Parsing**: Extract structured data from AI responses
+- **Error Handling**: Robust error handling with fallback options
 
 ## AI Response Structure
 
-### AiImageResponseStruct
+### Framework-Agnostic Response Model
 ```dart
-/// Gemini Response Containing a generated name and category
+/// AI Image Analysis Response Model (Works with any framework)
+class AIImageResponse {
+  final String name;
+  final String category;
+  final double? confidence;
+  final List<String>? alternativeNames;
+  final List<String>? alternativeCategories;
+
+  const AIImageResponse({
+    required this.name,
+    required this.category,
+    this.confidence,
+    this.alternativeNames,
+    this.alternativeCategories,
+  });
+
+  factory AIImageResponse.fromJson(Map<String, dynamic> json) {
+    return AIImageResponse(
+      name: json['name']?.toString() ?? '',
+      category: json['category']?.toString() ?? '',
+      confidence: json['confidence']?.toDouble(),
+      alternativeNames: (json['alternativeNames'] as List?)
+          ?.map((e) => e.toString())
+          .toList(),
+      alternativeCategories: (json['alternativeCategories'] as List?)
+          ?.map((e) => e.toString())
+          .toList(),
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'name': name,
+      'category': category,
+      if (confidence != null) 'confidence': confidence,
+      if (alternativeNames != null) 'alternativeNames': alternativeNames,
+      if (alternativeCategories != null) 'alternativeCategories': alternativeCategories,
+    };
+  }
+
+  bool get isEmpty => name.isEmpty && category.isEmpty;
+  bool get isValid => name.isNotEmpty || category.isNotEmpty;
+}
+```
+
+### FlutterFlow Compatible Struct (If using FlutterFlow)
+```dart
+/// Gemini Response Struct for FlutterFlow compatibility
 class AiImageResponseStruct extends BaseStruct {
   AiImageResponseStruct({
     /// Name of the object
@@ -39,6 +89,22 @@ class AiImageResponseStruct extends BaseStruct {
   String get category => _category ?? '';
   set category(String? val) => _category = val;
   bool hasCategory() => _category != null;
+
+  // Convert to framework-agnostic model
+  AIImageResponse toAIImageResponse() {
+    return AIImageResponse(
+      name: name,
+      category: category,
+    );
+  }
+
+  // Create from framework-agnostic model
+  factory AiImageResponseStruct.fromAIImageResponse(AIImageResponse response) {
+    return AiImageResponseStruct(
+      name: response.name,
+      category: response.category,
+    );
+  }
 }
 ```
 
