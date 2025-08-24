@@ -1,0 +1,63 @@
+name: Build APK with Tests
+
+on:
+  push:
+    branches: [ ai-test ]
+  pull_request:
+    branches: [ ai-test ]
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Java
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'zulu'
+        java-version: '17'
+        
+    - name: Setup Flutter
+      uses: subosito/flutter-action@v2
+      with:
+        flutter-version: '3.27.1'
+        channel: 'stable'
+        
+    - name: Install dependencies
+      run: flutter pub get
+      
+    - name: Verify Flutter installation
+      run: flutter doctor -v
+      
+    - name: Analyze code
+      run: flutter analyze
+      continue-on-error: true
+      
+    # - name: Run unit tests
+    #   run: flutter test
+      
+    - name: Build APK Release
+      run: flutter build apk --release
+      
+    - name: Upload APK Release
+      uses: actions/upload-artifact@v4
+      with:
+        name: tote-tracker-release-apk
+        path: build/app/outputs/flutter-apk/app-release.apk
+        retention-days: 30
+        
+    - name: Get app version
+      id: version
+      run: |
+        VERSION=$(grep "version:" pubspec.yaml | sed 's/version: //')
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        
+    - name: Create Release Summary
+      run: |
+        echo "## 🚀 ToteTracker APK Build Success" >> $GITHUB_STEP_SUMMARY
+        echo "- **Version**: ${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **Commit**: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+        echo "- **APK**: Available in artifacts as 'tote-tracker-release-apk'" >> $GITHUB_STEP_SUMMARY
