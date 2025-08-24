@@ -14,6 +14,7 @@ import 'package:tote_tracker/app_state.dart';
 import 'package:tote_tracker/backend/sqlite/sqlite_manager.dart';
 import 'package:tote_tracker/flutter_flow/flutter_flow_util.dart';
 import 'package:tote_tracker/flutter_flow/flutter_flow_theme.dart';
+import 'package:tote_tracker/pages/main_page/main_page_widget.dart';
 
 void main() {
   // Initialize all dependencies before any tests that might use them
@@ -47,6 +48,27 @@ void main() {
     
     // Basic check that the app has been loaded
     expect(find.byType(MaterialApp), findsOneWidget);
+  });
+  
+  testWidgets('MainPageWidget can be created with proper Provider context', (WidgetTester tester) async {
+    // This test specifically targets the original issue with MainPageWidget
+    final appState = FFAppState();
+    await appState.initializePersistedState();
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider(
+        create: (_) => appState,
+        child: MaterialApp(
+          home: MainPageWidget(),
+        ),
+      ),
+    );
+    
+    // This should not throw a Provider error
+    await tester.pumpAndSettle();
+    
+    // Verify the MainPageWidget was created successfully
+    expect(find.byType(MainPageWidget), findsOneWidget);
   });
   
   test('App version is properly defined', () {
