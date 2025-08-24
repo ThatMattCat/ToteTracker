@@ -1,15 +1,28 @@
-name: Build APK with Tests
+name: Secure Build with Signing and SLSA
 
 on:
   push:
     branches: [ main ]
+    tags:
+      - 'v*'
   pull_request:
     branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  packages: write
+  id-token: write
+  actions: read
 
 jobs:
-  test-and-build:
+  # Job 1: Build and Sign APK
+  build-and-sign:
     runs-on: ubuntu-latest
-    
+    outputs:
+      hashes: ${{ steps.hash.outputs.hashes }}
+      version: ${{ steps.version.outputs.version }}
+      
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -29,25 +42,42 @@ jobs:
     - name: Install dependencies
       run: flutter pub get
       
-    - name: Verify Flutter installation
-      run: flutter doctor -v
+    - name: Run tests
+      run: flutter test
+      continue-on-error: true
       
     - name: Analyze code
       run: flutter analyze
       continue-on-error: true
       
-    # - name: Run unit tests
-    #   run: flutter test
-      
-    - name: Build APK Release
-      run: flutter build apk --release
-      
-    - name: Upload APK Release
-      uses: actions/upload-artifact@v4
-      with:
-        name: tote-tracker-release-apk
-        path: build/app/outputs/flutter-apk/app-release.apk
-        retention-days: 30
+    # Decode the keystore from secrets (skip for PRs)
+    - name: Decode Keystore
+      if: github.event_name != 'pull_request'
+      env:
+        ENCODED_KEYSTORE: ${{ secrets.KEYSTORE_BASE64 }}
+      run: |
+        echo $ENCODED_KEYSTORE | base64 -d > android/app/keystore.jks
+        
+    # Create key.properties file
+    - name: Create key.properties
+      if: github.event_name != 'pull_request'
+      run: |
+        echo "storePassword=${{ secrets.KEYSTORE_PASSWORD }}" > android/key.properties
+        echo "keyPassword=${{ secrets.KEY_PASSWORD }}" >> android/key.properties
+        echo "keyAlias=${{ secrets.KEY_ALIAS }}" >> android/key.properties
+        echo "storeFile=keystore.jks" >> android/key.properties
+        
+    # Build APK (signed if not a PR, unsigned if PR)
+    - name: Build APK
+      run: |
+        if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+          echo "Building unsigned APK for PR"
+          flutter build apk --debug
+          mv build/app/outputs/flutter-apk/app-debug.apk build/app/outputs/flutter-apk/app-release.apk
+        else
+          echo "Building signed APK"
+          flutter build apk --release
+        fi
         
     - name: Get app version
       id: version
@@ -55,9 +85,195 @@ jobs:
         VERSION=$(grep "version:" pubspec.yaml | sed 's/version: //')
         echo "version=$VERSION" >> $GITHUB_OUTPUT
         
-    - name: Create Release Summary
+    # Generate hash for SLSA
+    - name: Generate subject for SLSA
+      id: hash
       run: |
-        echo "## 🚀 ToteTracker APK Build Success" >> $GITHUB_STEP_SUMMARY
+        set -euo pipefail
+        echo "hashes=$(sha256sum build/app/outputs/flutter-apk/app-release.apk | base64 -w0)" >> $GITHUB_OUTPUT
+        
+    # Generate comprehensive build metadata
+    - name: Generate Build Metadata
+      id: metadata
+      run: |
+        APK_SHA256=$(sha256sum build/app/outputs/flutter-apk/app-release.apk | cut -d' ' -f1)
+        BUILD_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+        
+        # Get APK signature info (if signed)
+        if [[ "${{ github.event_name }}" != "pull_request" ]]; then
+          # Extract certificate fingerprint using keytool
+          CERT_INFO=$(keytool -printcert -jarfile build/app/outputs/flutter-apk/app-release.apk 2>/dev/null | grep SHA256: | head -1 | cut -d' ' -f3 || echo "unsigned")
+        else
+          CERT_INFO="unsigned-pr-build"
+        fi
+        
+        # Create metadata file
+        cat > build-metadata.json <<EOF
+        {
+          "version": "${{ steps.version.outputs.version }}",
+          "commit": "${{ github.sha }}",
+          "branch": "${{ github.ref_name }}",
+          "build_time": "$BUILD_TIME",
+          "apk_sha256": "$APK_SHA256",
+          "certificate_fingerprint": "$CERT_INFO",
+          "signed": $([[ "${{ github.event_name }}" != "pull_request" ]] && echo "true" || echo "false"),
+          "workflow_run": "${{ github.run_id }}",
+          "workflow_url": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+          "slsa_provenance": $([[ "${{ github.event_name }}" != "pull_request" ]] && echo "true" || echo "false")
+        }
+        EOF
+        
+        echo "sha256=$APK_SHA256" >> $GITHUB_OUTPUT
+        echo "cert_info=$CERT_INFO" >> $GITHUB_OUTPUT
+        
+    # Create checksum file
+    - name: Create checksums
+      run: |
+        sha256sum build/app/outputs/flutter-apk/app-release.apk > SHA256SUMS.txt
+        echo "$(cat build-metadata.json | jq -r .apk_sha256)  app-release.apk" >> SHA256SUMS.txt
+        
+    # Upload artifacts
+    - name: Upload APK artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: tote-tracker-apk
+        path: build/app/outputs/flutter-apk/app-release.apk
+        if-no-files-found: error
+        retention-days: 5
+        
+    - name: Upload metadata artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: build-metadata
+        path: |
+          build-metadata.json
+          SHA256SUMS.txt
+        retention-days: 30
+        
+    # Create summary
+    - name: Create Build Summary
+      run: |
+        if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+          echo "## 🔧 PR Build (Unsigned)" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "## 🚀 Signed Build with SLSA Provenance" >> $GITHUB_STEP_SUMMARY
+        fi
         echo "- **Version**: ${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
-        echo "- **Commit**: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
-        echo "- **APK**: Available in artifacts as 'tote-tracker-release-apk'" >> $GITHUB_STEP_SUMMARY
+        echo "- **Commit**: [${{ github.sha }}](https://github.com/${{ github.repository }}/commit/${{ github.sha }})" >> $GITHUB_STEP_SUMMARY
+        echo "- **APK SHA256**: \`${{ steps.metadata.outputs.sha256 }}\`" >> $GITHUB_STEP_SUMMARY
+        if [[ "${{ github.event_name }}" != "pull_request" ]]; then
+          echo "- **Certificate**: \`${{ steps.metadata.outputs.cert_info }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **SLSA Provenance**: ✅ Will be generated" >> $GITHUB_STEP_SUMMARY
+        fi
+        echo "- **Workflow**: [Run #${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
+
+  # Job 2: Generate SLSA Provenance (only for non-PR builds)
+  provenance:
+    needs: [build-and-sign]
+    if: github.event_name != 'pull_request'
+    permissions:
+      actions: read
+      id-token: write
+      contents: write
+    uses: slsa-framework/slsa-github-generator/.github/workflows/generator_generic_slsa3.yml@v1.10.0
+    with:
+      base64-subjects: "${{ needs.build-and-sign.outputs.hashes }}"
+      upload-assets: true
+
+  # Job 3: Create Release (only for tags)
+  release:
+    needs: [build-and-sign, provenance]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+      
+    steps:
+    - name: Download APK
+      uses: actions/download-artifact@v4
+      with:
+        name: tote-tracker-apk
+        
+    - name: Download metadata
+      uses: actions/download-artifact@v4
+      with:
+        name: build-metadata
+        
+    - name: Read metadata
+      id: metadata
+      run: |
+        APK_SHA256=$(jq -r .apk_sha256 build-metadata.json)
+        CERT_INFO=$(jq -r .certificate_fingerprint build-metadata.json)
+        echo "sha256=$APK_SHA256" >> $GITHUB_OUTPUT
+        echo "cert=$CERT_INFO" >> $GITHUB_OUTPUT
+        
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          app-release.apk
+          build-metadata.json
+          SHA256SUMS.txt
+        body: |
+          ## 🔐 Verified & Signed Release
+          
+          This release includes:
+          - ✅ **Signed APK** with developer certificate
+          - ✅ **SLSA Provenance** attestation for supply chain security
+          - ✅ **SHA256 checksums** for integrity verification
+          
+          ### Build Information
+          - **Version**: ${{ needs.build-and-sign.outputs.version }}
+          - **Source Commit**: [`${{ github.sha }}`](https://github.com/${{ github.repository }}/commit/${{ github.sha }})
+          - **Build Workflow**: [Run #${{ github.run_id }}](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          
+          ### Security Verification
+          
+          #### 1️⃣ Verify APK Signature
+          ```bash
+          # Using apksigner (Android SDK)
+          apksigner verify --print-certs app-release.apk
+          
+          # Or using jarsigner (Java JDK)
+          jarsigner -verify -verbose -certs app-release.apk
+          ```
+          Expected certificate SHA256: `${{ steps.metadata.outputs.cert }}`
+          
+          #### 2️⃣ Verify APK Checksum
+          ```bash
+          sha256sum app-release.apk
+          ```
+          Expected: `${{ steps.metadata.outputs.sha256 }}`
+          
+          #### 3️⃣ Verify SLSA Provenance
+          ```bash
+          # Install slsa-verifier
+          go install github.com/slsa-framework/slsa-verifier/v2/cli/slsa-verifier@latest
+          
+          # Verify provenance
+          slsa-verifier verify-artifact app-release.apk \
+            --provenance-path multiple.intoto.jsonl \
+            --source-uri github.com/${{ github.repository }} \
+            --source-tag ${{ github.ref_name }}
+          ```
+          
+          ### Trust Chain
+          ```
+          Source Code (GitHub)
+              ↓
+          GitHub Actions (Signed Build)
+              ↓
+          Signed APK + SLSA Provenance
+              ↓
+          This Release (Immutable)
+          ```
+          
+          ### Installation
+          1. Verify the APK using any of the methods above
+          2. Enable "Install from unknown sources" in Android settings
+          3. Install the verified APK
+          
+          ---
+          📄 **Full build metadata**: See `build-metadata.json`
+          🔒 **Provenance attestation**: See `multiple.intoto.jsonl` (auto-attached by SLSA)
+        generate_release_notes: true
